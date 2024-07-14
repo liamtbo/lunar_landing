@@ -1,0 +1,22 @@
+what we have to work with
+    lunar landing env
+        create our own reward system using observations from base env
+    base environment
+        gym.lunar landing
+        give action, receive output
+    action value nn
+    softmax action selection
+    agent
+        start, step, end
+    adam optimizer
+    replay buffer
+    calc td error
+    update weights
+
+
+src / agent
+    softmax
+    agent class (steps)
+src / environment
+    lunar landing env
+    will have gym env, but create our own reward system based off next state
