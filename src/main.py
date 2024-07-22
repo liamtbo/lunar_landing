@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn # actin-value nn
 import torch.optim as optim # optimizer
 import torch.nn.functional as F # activates and loss functions
+import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -25,23 +26,24 @@ class DQN(nn.Module):
         logits = self.linear_relu_stack(x)
         return logits
     
+
 class replay_buffer():
-    def __init__(self, state_dim: int, minibatch_size: int):
-        self.batch = torch.empty(0, dtype=torch.float)
-        self.capacity = minibatch_size
+    def __init__(self, buffer_size: int, minibatch_size: int):
+        self.buffer = np.array([])
+        self.buffer_size = buffer_size
+        self.minibatch_size = minibatch_size
         self.current_size = 0
 
     def add(self, state: list[float]):
-        if self.capacity == self.current_size:
-            return False # failure
+        if self.buffer_size == self.current_size:
+            del self.buffer[0]
         else:
-            self.batch = torch.cat((self.batch, state.unsqueeze(0)), dim=0)
             self.current_size += 1
-            return True # succecful
+        self.buffer = np.append(self.buffer, state)
     
-    def reset(self, state_dim: int, minibatch_size: int):
-        self.batch = torch.empty(minibatch_size, state_dim, dtype=torch.float)
-        self.current_size = 0
+    def sample(self):
+        return [self.buffer[i] for i in np.random.choice(np.arange(self.buffer_size), size=self.minibatch_size)]
+
     
 def train_loop(model, env, loss_function, optimizer, episodes, graph_increment) -> list[float]:
     reward_tracker = []
@@ -89,7 +91,6 @@ def train_loop(model, env, loss_function, optimizer, episodes, graph_increment) 
 def plot_reward(episodes: int, graph_increment: int, reward_tracker: list[float]):
     x = [i for i in range(int(episodes / graph_increment - 1))]
     y = reward_tracker
-    print(reward_tracker)
 
     fig, ax = plt.subplots()
     ax.plot(x,y,label="reward data", marker='o')
@@ -103,7 +104,6 @@ def main():
     # env = gym.make('LunarLander-v2', render_mode="human")
     env = gym.make('LunarLander-v2')
     state_dim = env.observation_space.shape[0]
-    print(state_dim)
     action_dim = env.action_space.n
     model = DQN(state_dim, action_dim)
     optimizer = optim.Adam(model.parameters())
