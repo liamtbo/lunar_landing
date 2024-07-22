@@ -4,7 +4,7 @@ import torch.nn as nn # actin-value nn
 import torch.optim as optim # optimizer
 import torch.nn.functional as F # activates and loss functions
 from tqdm import tqdm
-import time
+import matplotlib.pyplot as plt
 
 # deep Q-network
 ## nn.Module is a base class that provides functionality to organize and manage 
@@ -13,55 +13,108 @@ class DQN(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(DQN, self).__init__()
         # fully connected layers of nn
-        self.fc1 = nn.Linear(input_dim, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, output_dim)
-    
+        self.linear_relu_stack = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, output_dim)
+        )
     # x is state input q(s,a)
     # output is q(s,a) for all action vals
     def forward(self, x):
-        x = self.fc1(x)
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+        logits = self.linear_relu_stack(x)
+        return logits
     
-env = gym.make('LunarLander-v2', render_mode="human")
-state_dim = env.observation_space.shape[0]
-action_dim = env.action_space.n
-model = DQN(state_dim, action_dim)
-optimizer = optim.Adam(model.parameters())
+class replay_buffer():
+    def __init__(self, state_dim: int, minibatch_size: int):
+        self.batch = torch.empty(0, dtype=torch.float)
+        self.capacity = minibatch_size
+        self.current_size = 0
 
-for episode in tqdm(range(1000)):
-    state = (env.reset())[0]
-    env.render()
-    terminated = False
+    def add(self, state: list[float]):
+        if self.capacity == self.current_size:
+            return False # failure
+        else:
+            self.batch = torch.cat((self.batch, state.unsqueeze(0)), dim=0)
+            self.current_size += 1
+            return True # succecful
+    
+    def reset(self, state_dim: int, minibatch_size: int):
+        self.batch = torch.empty(minibatch_size, state_dim, dtype=torch.float)
+        self.current_size = 0
+    
+def train_loop(model, env, loss_function, optimizer, episodes, graph_increment) -> list[float]:
+    reward_tracker = []
+    rewards = 0
+    model.train()
 
-    while not terminated:
+    for episode in tqdm(range(episodes)):
+        state = (env.reset())[0]
+        # env.render()
+        terminated = False
 
-        state_tensor = torch.FloatTensor(state).unsqueeze(0)
-        action_values = model.forward(state_tensor)
-        action_probabilies = torch.softmax(action_values, dim=1) # dim is dimension to compute softmax on
-        action_dis = torch.distributions.Categorical(action_probabilies)
-        action = action_dis.sample().item()
+        while not terminated:
+            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            action_values = model(state_tensor)
+            action_probabilies = torch.softmax(action_values, dim=1) # dim is dimension to compute softmax on
+            action_dis = torch.distributions.Categorical(action_probabilies)
+            action = action_dis.sample().item()
 
-        next_state, reward, terminated, _, _ = env.step(action)
-        next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0)
-        # print(next_state_tensor)
+            next_state, reward, terminated, _, _ = env.step(action)
+            next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0)
 
-        # expected sarsa
-        next_state_action_values = model.forward(next_state_tensor)
-        next_state_action_probabilites = torch.softmax(next_state_action_values, dim=1)
-        sum_next_state_actions = (next_state_action_values * next_state_action_probabilites).sum()
+            # expected sarsa
+            next_state_action_values = model(next_state_tensor)
+            next_state_action_probabilites = torch.softmax(next_state_action_values, dim=1)
+            sum_next_state_actions = (next_state_action_values * next_state_action_probabilites).sum()
 
-        # TD error
-        td_target = torch.FloatTensor(reward + 0.99 * sum_next_state_actions)
-        predicted_value = torch.FloatTensor(action_values[0, action])
-        loss = F.smooth_l1_loss(predicted_value, td_target)
+            # TD error
+            td_target = torch.FloatTensor((reward + 0.99 * sum_next_state_actions))
+            predicted_value = torch.FloatTensor(action_values[0, action])
+            loss = loss_function(predicted_value, td_target)
 
-        # backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            # backpropagation
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
 
-        state = next_state
+            rewards += reward
+            state = next_state
 
+        if episode % graph_increment  == 0 and episode != 0:
+            reward_tracker.append(rewards / graph_increment)
+            rewards = 0
+    return reward_tracker
+
+def plot_reward(episodes: int, graph_increment: int, reward_tracker: list[float]):
+    x = [i for i in range(int(episodes / graph_increment - 1))]
+    y = reward_tracker
+    print(reward_tracker)
+
+    fig, ax = plt.subplots()
+    ax.plot(x,y,label="reward data", marker='o')
+    ax.set_title("simple line plot")
+    ax.set_xlabel("epsidoes")
+    ax.set_ylabel("num of rewards")
+    ax.legend()
+    plt.show()
+
+def main():
+    # env = gym.make('LunarLander-v2', render_mode="human")
+    env = gym.make('LunarLander-v2')
+    state_dim = env.observation_space.shape[0]
+    print(state_dim)
+    action_dim = env.action_space.n
+    model = DQN(state_dim, action_dim)
+    optimizer = optim.Adam(model.parameters())
+    episodes = 500
+    graph_increment = 10
+    
+    reward_tracker = train_loop(model, env, F.smooth_l1_loss, optimizer, episodes, graph_increment)
+
+    plot_reward(episodes, graph_increment, reward_tracker)
+
+    env.close()
+
+if __name__ == "__main__":
+    main()
