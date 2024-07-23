@@ -1,9 +1,14 @@
 import torch
-alpha = torch.tensor([1,2,3,4,5])
-beta = alpha.numpy()
-print(alpha)
-print(beta)
-if torch.cuda.is_available():
-    alpha = alpha.to('cuda')
+import numpy as np
 
-print(alpha)
+l = [1,2,3,4]
+
+test = {
+    "l": l
+}
+def f(test):
+    test["l"][2] = 99999
+
+f(test)
+print(l)
+
