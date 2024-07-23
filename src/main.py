@@ -46,50 +46,43 @@ class replay_buffer():
         states, actions, reward, next_state, terminal = zip(*[self.buffer[i] for i in minibatch_i])
         return np.stack(states), np.array(actions), np.array(reward), np.stack(next_state), np.array(terminal)
 
-
-def get_td_target(minibatch):
-    # for each element in minibatch compute td error
-    pass
-
-"""
-model = DQN(state_dim, action_dim)
-target_model = DQN(state_dim, action_dim)
-target_model.load_state_dict(model.state_dict())
-"""
 def optimize_network(replay, model, optimize_net_init):
     loss_function = optimize_net_init["loss_function"]
     optimizer = optimize_net_init["optimizer"]
     replay_steps = optimize_net_init["replay_steps"]
+    gamma = optimize_net_init["gamma"]
+    tau = optimize_net_init["tau"]
 
-    # target_model = DQN(optimize_net_init["state_dim"], optimize_net_init["action_dim"])
-    # target_model.load_state_dict(model.state_dict())
+    target_model = DQN(optimize_net_init["state_dim"], optimize_net_init["action_dim"])
+    target_model.load_state_dict(model.state_dict())
 
-    # for step in range(replay_steps):
-    states, actions, rewards, next_states, terminals = replay.sample()
-    states = torch.tensor(states, dtype=torch.float)
-    actions = torch.tensor(actions, dtype=torch.int)
-    rewards = torch.tensor(rewards, dtype=torch.float)
-    next_states = torch.tensor(next_states, dtype=torch.float)
-    terminals = torch.tensor(terminals, dtype=torch.float)
-
-    # TODO with_no_grad?
-    states_qvalues = model(states)
-    next_states_qvalues = model(next_states)
-
-    # # expected sarsa
-    next_state_qvals_probs = torch.softmax(next_states_qvalues, dim=1)
-    sum_next_states_qvals_times_probs = torch.sum(next_states_qvalues * next_state_qvals_probs, dim=1)
-
-    # # TD error
-    td_targets = rewards + 0.99 * sum_next_states_qvals_times_probs * (1 - terminals)
-    predicted_values = states_qvalues[torch.arange(states_qvalues.size(0)), actions]
-    loss = loss_function(predicted_values, td_targets)
-
-    # # backpropagation
-    optimizer.zero_grad()
-    loss.backward()
-    optimizer.step()
-
+    for step in range(replay_steps):
+        states, actions, rewards, next_states, terminals = replay.sample()
+        states = torch.tensor(states, dtype=torch.float)
+        actions = torch.tensor(actions, dtype=torch.int)
+        rewards = torch.tensor(rewards, dtype=torch.float)
+        next_states = torch.tensor(next_states, dtype=torch.float)
+        terminals = torch.tensor(terminals, dtype=torch.float)
+    
+        # TODO with_no_grad?
+        states_qvalues = model(states)
+        next_states_qvalues = target_model(next_states)
+    
+        # # expected sarsa
+        next_state_qvals_probs = torch.softmax(next_states_qvalues / tau, dim=1)
+        sum_next_states_qvals_times_probs = torch.sum(next_states_qvalues * next_state_qvals_probs, dim=1)
+    
+        # # TD error
+        td_targets = rewards + gamma * sum_next_states_qvals_times_probs * (1 - terminals)
+        predicted_values = states_qvalues[torch.arange(states_qvalues.size(0)), actions]
+        loss = loss_function(predicted_values, td_targets)
+    
+        # # backpropagation
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    
+    
 # TODO this needs to be udpatetd
 # TODO hyper params need to be added and adjusted
 def train_loop(train_loop_init, optimize_net_init, replay_buffer_init) -> list[float]:
@@ -97,6 +90,7 @@ def train_loop(train_loop_init, optimize_net_init, replay_buffer_init) -> list[f
     env = train_loop_init["env"]
     episodes = train_loop_init["episodes"]
     graph_increment = train_loop_init["graph_increment"]
+    tau = optimize_net_init["tau"]
 
     reward_tracker = []
     reward_sum = 0
@@ -111,7 +105,7 @@ def train_loop(train_loop_init, optimize_net_init, replay_buffer_init) -> list[f
 
         while not terminated:
             action_values = model(state_tensor)
-            action_probabilies = torch.softmax(action_values, dim=0)# dim is dimension to compute softmax on
+            action_probabilies = torch.softmax(action_values / tau, dim=0)# dim is dimension to compute softmax on
             action_dis = torch.distributions.Categorical(action_probabilies)
             action = action_dis.sample().item()
 
@@ -121,7 +115,7 @@ def train_loop(train_loop_init, optimize_net_init, replay_buffer_init) -> list[f
             reward_sum += reward
             state = next_state
             # complete batch updater here
-            if replay.buffer_size == replay.current_size:
+            if replay.current_size > replay.minibatch_size:
                 optimize_network(replay, model, optimize_net_init)
 
         if episode % graph_increment  == 0 and episode != 0:
@@ -159,19 +153,22 @@ def main():
     train_loop_init = {
         "env": env,
         "model": model,
-        "episodes": 500,
-        "graph_increment": 10 
+        "episodes":300, # make sure graph_incremenet | episodes
+        "graph_increment": 10,
+        "timeout": 500
     }
     optimize_net_init = {
-        "loss_function": F.smooth_l1_loss,
-        "optimizer": optim.Adam(model.parameters(), lr=1e-3),
+        "loss_function": F.mse_loss,
+        "optimizer": optim.Adam(model.parameters(), lr=1e-3, betas = (0.9, 0.999), eps = 1e-8),
         "replay_steps": 20,
         "state_dim": state_dim,
-        "action_dim": action_dim
+        "action_dim": action_dim,
+        "gamma": 0.99,
+        "tau": 0.001
     }
     replay_buffer_init = {
-        "buffer_size": 50,
-        "minibatch_size": 50
+        "buffer_size": 50000,
+        "minibatch_size": 8
     }
     reward_tracker = train_loop(train_loop_init, optimize_net_init, replay_buffer_init)
 
