@@ -9,3 +9,5 @@ qvals = torch.FloatTensor([[1,2,3,4],
 actions = torch.tensor([1,3], dtype=torch.int)
 
 print(qvals[torch.arange(qvals.size(0)), actions])
+
+loss = F.mse_loss()
