@@ -30,12 +30,12 @@ class DQN(nn.Module):
 class replay_buffer():
     def __init__(self, replay_buffer_init):
         self.buffer = []
-        self.buffer_size = replay_buffer_init["buffer_size"]
+        self.buffer_capacity = replay_buffer_init["buffer_capacity"]
         self.minibatch_size = replay_buffer_init["minibatch_size"]
         self.current_size = 0
 
     def add(self, state: list[float], action: int, reward: float, next_state: list[float], terminal: bool):
-        if self.buffer_size == self.current_size:
+        if self.buffer_capacity == self.current_size:
             del self.buffer[0]
         else:
             self.current_size += 1
@@ -46,45 +46,40 @@ class replay_buffer():
         states, actions, reward, next_state, terminal = zip(*[self.buffer[i] for i in minibatch_i])
         return np.stack(states), np.array(actions), np.array(reward), np.stack(next_state), np.array(terminal)
 
-def optimize_network(replay, model, optimize_net_init):
+
+def optimize_network(sample, model, target_model, optimize_net_init):
+
     loss_function = optimize_net_init["loss_function"]
     optimizer = optimize_net_init["optimizer"]
     replay_steps = optimize_net_init["replay_steps"]
     gamma = optimize_net_init["gamma"]
-    tau = optimize_net_init["tau"]
 
-    target_model = DQN(optimize_net_init["state_dim"], optimize_net_init["action_dim"])
-    target_model.load_state_dict(model.state_dict())
+    states, actions, rewards, next_states, terminals = sample
+    states = torch.tensor(states, dtype=torch.float)
+    actions = torch.tensor(actions, dtype=torch.int)
+    rewards = torch.tensor(rewards, dtype=torch.float)
+    next_states = torch.tensor(next_states, dtype=torch.float)
+    terminals = torch.tensor(terminals, dtype=torch.float)
 
-    for step in range(replay_steps):
-        states, actions, rewards, next_states, terminals = replay.sample()
-        states = torch.tensor(states, dtype=torch.float)
-        actions = torch.tensor(actions, dtype=torch.int)
-        rewards = torch.tensor(rewards, dtype=torch.float)
-        next_states = torch.tensor(next_states, dtype=torch.float)
-        terminals = torch.tensor(terminals, dtype=torch.float)
+    # TODO with_no_grad? ALSO, calculating states qvals twice ! once here one in train loop
+    states_qvalues = model(states) 
+    next_states_qvalues = target_model(next_states)
+
+    # # expected sarsa
+    next_state_qvals_probs = torch.softmax(next_states_qvalues, dim=1)
+    sum_next_states_qvals_times_probs = torch.sum(next_states_qvalues * next_state_qvals_probs, dim=1)
+
+    # # TD error
+    td_targets = rewards + gamma * sum_next_states_qvals_times_probs * (1 - terminals)
+    predicted_values = states_qvalues[torch.arange(states_qvalues.size(0)), actions]
+    loss = loss_function(predicted_values, td_targets)
+
+    # # backpropagation
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
     
-        # TODO with_no_grad?
-        states_qvalues = model(states)
-        next_states_qvalues = target_model(next_states)
-    
-        # # expected sarsa
-        next_state_qvals_probs = torch.softmax(next_states_qvalues / tau, dim=1)
-        sum_next_states_qvals_times_probs = torch.sum(next_states_qvalues * next_state_qvals_probs, dim=1)
-    
-        # # TD error
-        td_targets = rewards + gamma * sum_next_states_qvals_times_probs * (1 - terminals)
-        predicted_values = states_qvalues[torch.arange(states_qvalues.size(0)), actions]
-        loss = loss_function(predicted_values, td_targets)
-    
-        # # backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-    
-    
-# TODO this needs to be udpatetd
-# TODO hyper params need to be added and adjusted
+
 def train_loop(train_loop_init, optimize_net_init, replay_buffer_init) -> list[float]:
     model = train_loop_init["model"]
     env = train_loop_init["env"]
@@ -96,6 +91,8 @@ def train_loop(train_loop_init, optimize_net_init, replay_buffer_init) -> list[f
     reward_sum = 0
     model.train()
     replay = replay_buffer(replay_buffer_init)
+    target_model = DQN(optimize_net_init["state_dim"], optimize_net_init["action_dim"])
+
 
     for episode in tqdm(range(episodes)):
         state = (env.reset())[0]
@@ -105,9 +102,15 @@ def train_loop(train_loop_init, optimize_net_init, replay_buffer_init) -> list[f
 
         while not terminated:
             action_values = model(state_tensor)
+            # softmax
             action_probabilies = torch.softmax(action_values / tau, dim=0)# dim is dimension to compute softmax on
             action_dis = torch.distributions.Categorical(action_probabilies)
             action = action_dis.sample().item()
+            # e-greedy
+            # if np.random.rand() < .9:
+            #     action = torch.argmax(action_values).item()
+            # else:
+            #     action = torch.randint(0,len(action_values), (1,)).item()
 
             next_state, reward, terminated, _, _ = env.step(action)
 
@@ -116,11 +119,16 @@ def train_loop(train_loop_init, optimize_net_init, replay_buffer_init) -> list[f
             state = next_state
             # complete batch updater here
             if replay.current_size > replay.minibatch_size:
-                optimize_network(replay, model, optimize_net_init)
+                target_model.load_state_dict(model.state_dict())
+
+                for _ in range(optimize_net_init["replay_steps"]):
+                    sample = replay.sample()
+                    optimize_network(sample, model, target_model, optimize_net_init)
 
         if episode % graph_increment  == 0 and episode != 0:
             reward_tracker.append(reward_sum / graph_increment)
             reward_sum = 0
+            print(reward_tracker)
 
     return reward_tracker
 
@@ -167,7 +175,7 @@ def main():
         "tau": 0.001
     }
     replay_buffer_init = {
-        "buffer_size": 50000,
+        "buffer_capacity": 50000,
         "minibatch_size": 8
     }
     reward_tracker = train_loop(train_loop_init, optimize_net_init, replay_buffer_init)

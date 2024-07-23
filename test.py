@@ -1,14 +1,11 @@
 import torch
 import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 
-l = [1,2,3,4]
+qvals = torch.FloatTensor([[1,2,3,4],
+                           [5,6,7,8]])
+actions = torch.tensor([1,3], dtype=torch.int)
 
-test = {
-    "l": l
-}
-def f(test):
-    test["l"][2] = 99999
-
-f(test)
-print(l)
-
+print(qvals[torch.arange(qvals.size(0)), actions])
