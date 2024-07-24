@@ -2,7 +2,7 @@ import random as r
 import numpy as np
 import torch
 
-from src.main import replay_buffer
+from lunar_landing.main import replay_buffer
 
 
 replay = replay_buffer(10, 5)
