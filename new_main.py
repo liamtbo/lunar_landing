@@ -6,6 +6,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 import random
+import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
@@ -39,8 +40,30 @@ class replay_buffer():
     def __len__(self):
         return len(self.replay_buffer)
 
-def optimize_network(functions, hyperparameters):
-    print(functions["replay"].replay_buffer)
+def optimize_network(functions, hyperparameters, replay: replay_buffer):
+    if len(replay) < hyperparameters["minibatch_size"]:
+        return
+    device = functions["device"]
+    policy_nn = functions["policy_nn"]
+    target_nn = functions["target_nn"]
+    lr = hyperparameters["learning_rate"]
+
+
+    batch = replay.sample(hyperparameters["minibatch_size"])
+    batch = Transition(*zip(*batch))
+    states = torch.tensor(np.array(batch.state), dtype=torch.float32, device=device)
+    actions = torch.tensor(batch.action, dtype=torch.int, device=device)
+    rewards = torch.tensor(batch.reward, dtype=torch.float32, device=device)
+    next_states = torch.tensor(np.array(batch.next_state), dtype=torch.float32, device=device)
+
+    states_qvalues = policy_nn(states).gather(1, actions)
+    with torch.no_grad():
+        next_states_qvalues = torch.max(target_nn(next_states), dim=1).values
+    # td_target = rewards + lr * 
+
+
+    print("here")
+
 
 
 def softmax(state_qvalues):
@@ -58,7 +81,7 @@ def training_loop(functions, hyperparameters):
 
     for episode in tqdm(range(hyperparameters["episodes"])):
         state, _ = env.reset()
-        state = torch.tensor(state, dtype=torch.float, device=device)
+        state = torch.tensor(state, dtype=torch.float32, device=device)
         terminated = False
 
         while not terminated:
@@ -68,9 +91,9 @@ def training_loop(functions, hyperparameters):
             next_state, reward, terminated, _, _ = env.step(action) # TODO PE truncated, look at cart ex
             # TODO PE possibly need to make next_state = none when terminal
             replay.push(state.tolist(), action, reward, next_state, terminated)
-            state = torch.tensor(next_state, device=device)
+            state = torch.tensor(next_state, dtype=torch.float32, device=device)
 
-            optimize_network(functions, hyperparameters)
+            optimize_network(functions, hyperparameters, replay)
 
 
 def plot_reward(hyperparameters, reward_tracker: list[float]):
@@ -123,7 +146,7 @@ def main():
         "learning_rate": 0.99,
         "tau": 0.001,
         "replay_buffer_capacity": 50000,
-        "minibatch_size": 128,
+        "minibatch_size": 4,
         "graph_increment": 10
     }
 
