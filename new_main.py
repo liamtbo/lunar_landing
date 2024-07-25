@@ -5,9 +5,11 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+import math
 import random
 import numpy as np
 from tqdm import tqdm
+from itertools import count
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 
@@ -47,6 +49,7 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
     policy_nn = functions["policy_nn"]
     target_nn = functions["target_nn"]
     lr = hyperparameters["learning_rate"]
+    # gamma = hyperparameters["gamma"]
     loss_function = functions["loss_function"]
     optimizer = functions["optimizer"]
 
@@ -57,6 +60,7 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
     rewards = torch.tensor(batch.reward, dtype=torch.float32, device=device)
     next_states = torch.tensor(np.array(batch.next_state), dtype=torch.float32, device=device)
     terminated = torch.tensor(batch.terminated, dtype=int, device=device)
+
 
     predicted  = policy_nn(states).gather(1, actions).squeeze(1)
     with torch.no_grad():
@@ -69,8 +73,23 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
     loss.backward()
     optimizer.step()
 
+steps_done = 0
 
-def softmax(state_qvalues):
+def e_greedy(q_values, functions, hyperparameters):
+    env = functions["env"]
+    device = functions["device"]
+    global steps_done
+    eps_threshold = hyperparameters["eps_end"] + (hyperparameters["eps_start"] - hyperparameters["eps_end"]) \
+                    * math.exp(-1. * steps_done / hyperparameters["eps_decay"])
+    steps_done += 1
+    sample = random.random()
+    if sample > eps_threshold:
+        with torch.no_grad():
+            return q_values.max(0).indices.item()
+    else:
+        return torch.tensor([env.action_space.sample()], device=device, dtype=torch.long).item()
+
+def softmax(state_qvalues, functions, hyperparameters):
     state_qvalues_probabilities = torch.softmax(state_qvalues, dim=0)
     state_qvalues_dis = torch.distributions.Categorical(state_qvalues_probabilities)
     action = state_qvalues_dis.sample().item()
@@ -92,12 +111,12 @@ def training_loop(functions, hyperparameters):
         state = torch.tensor(state, dtype=torch.float32, device=device)
         terminated = False
 
-        while not terminated:
+        for t in count():
             with torch.no_grad():
                 state_qvalues = policy_nn(state)
-            action = select_action(state_qvalues)
+            action = select_action(state_qvalues, functions, hyperparameters)
+
             next_state, reward, terminated, _, _ = env.step(action) # TODO PE truncated, look at cart ex
-            # TODO PE possibly need to make next_state = none when terminal
             reward_sum += reward
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
@@ -105,6 +124,9 @@ def training_loop(functions, hyperparameters):
             optimize_network(functions, hyperparameters, replay)
 
             target_nn.load_state_dict(policy_nn.state_dict())
+
+            if terminated:
+                break
         
         if episode % graph_increment  == 0 and episode != 0:
             reward_tracker.append(reward_sum / graph_increment)
@@ -148,7 +170,7 @@ def main():
     policy_nn = DQN(state_dim, action_dim).to(device)
     target_nn = DQN(state_dim, action_dim).to(device)
     target_nn.load_state_dict(policy_nn.state_dict())
-    lr = 0.99
+    lr = 1e-4
 
     functions = {
         "env": env,
@@ -157,7 +179,7 @@ def main():
         "loss_function": nn.SmoothL1Loss(),
         "optimizer": optim.Adam(policy_nn.parameters(), lr=lr), # TODO amsgrad?, ADAMW?
         "device": device,
-        "select_action": softmax,
+        "select_action": e_greedy # softmax or e_greedy
     }
     hyperparameters = {
         "episodes": 300,
@@ -166,7 +188,13 @@ def main():
         "learning_rate": lr,
         "tau": 0.001,
         "replay_buffer_capacity": 50000,
-        "minibatch_size": 128
+        "minibatch_size": 4,
+        "state_dim": state_dim,
+        "action_dim": action_dim,
+        "eps_end": 0.05,
+        "eps_start": 0.9,
+        "eps_decay": 1000,
+        # "gamma": 0.99
     }
 
     reward_tracker = training_loop(functions, hyperparameters)
