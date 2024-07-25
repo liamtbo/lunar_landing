@@ -67,7 +67,7 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
         next_states_qvalues = torch.max(target_nn(next_states), dim=1).values
 
     # TODO PE with working with terminated q_vals
-    target = rewards + lr * next_states_qvalues * (1 - terminated)
+    target = rewards + 0.99 * next_states_qvalues * (1 - terminated)
     loss = loss_function(predicted, target)
     optimizer.zero_grad()
     loss.backward()
@@ -116,7 +116,7 @@ def training_loop(functions, hyperparameters):
                 state_qvalues = policy_nn(state)
             action = select_action(state_qvalues, functions, hyperparameters)
 
-            next_state, reward, terminated, _, _ = env.step(action) # TODO PE truncated, look at cart ex
+            next_state, reward, terminated, truncated, _ = env.step(action) # TODO PE truncated, look at cart ex
             reward_sum += reward
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
@@ -125,26 +125,17 @@ def training_loop(functions, hyperparameters):
 
             target_nn.load_state_dict(policy_nn.state_dict())
 
-            if terminated:
+            if terminated or truncated:
+                reward_tracker.append(reward_sum)
+                reward_sum = 0
                 break
-        
-        if episode % graph_increment  == 0 and episode != 0:
-            reward_tracker.append(reward_sum / graph_increment)
-            reward_sum = 0
-            print(reward_tracker)
 
     return reward_tracker
 
 
 def plot_reward(hyperparameters, reward_tracker: list[float]):
     episodes = hyperparameters["episodes"]
-    graph_increment = hyperparameters["graph_increment"]
-
-    if episodes % graph_increment != 0:
-        print("graph increment must divide episodes for graph/data to be displayed")
-        return
-
-    x = [i for i in range(int(episodes / graph_increment - 1))]
+    x = [i for i in range(episodes)]
     y = reward_tracker
 
     fig, ax = plt.subplots()
@@ -188,7 +179,7 @@ def main():
         "learning_rate": lr,
         "tau": 0.001,
         "replay_buffer_capacity": 50000,
-        "minibatch_size": 4,
+        "minibatch_size": 128,
         "state_dim": state_dim,
         "action_dim": action_dim,
         "eps_end": 0.05,
