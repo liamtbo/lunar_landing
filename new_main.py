@@ -10,6 +10,7 @@ import random
 import numpy as np
 from tqdm import tqdm
 from itertools import count
+import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 
@@ -42,6 +43,42 @@ class replay_buffer():
     def __len__(self):
         return len(self.replay_buffer)
 
+
+# set up matplotlib
+is_ipython = 'inline' in matplotlib.get_backend()
+if is_ipython:
+    from IPython import display
+
+plt.ion()
+
+episode_durations = []
+
+
+def plot_durations(show_result=False):
+    plt.figure(1)
+    durations_t = torch.tensor(episode_durations, dtype=torch.float)
+    if show_result:
+        plt.title('Result')
+    else:
+        plt.clf()
+        plt.title('Training...')
+    plt.xlabel('Episode')
+    plt.ylabel('Duration')
+    plt.plot(durations_t.numpy())
+    # Take 100 episode averages and plot them too
+    if len(durations_t) >= 100:
+        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
+        means = torch.cat((torch.zeros(99), means))
+        plt.plot(means.numpy())
+
+    plt.pause(0.001)  # pause a bit so that plots are updated
+    if is_ipython:
+        if not show_result:
+            display.display(plt.gcf())
+            display.clear_output(wait=True)
+        else:
+            display.display(plt.gcf())
+
 def optimize_network(functions, hyperparameters, replay: replay_buffer):
     if len(replay) < hyperparameters["minibatch_size"]:
         return
@@ -63,14 +100,19 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
 
 
     predicted  = policy_nn(states).gather(1, actions).squeeze(1)
+    # print(f"predicted: {predicted}")
     with torch.no_grad():
-        next_states_qvalues = torch.max(target_nn(next_states), dim=1).values
-
+        next_states_qvalues = torch.max(target_nn(next_states), dim=1).values * (1 - terminated)
+    # print(f"next_states_qvals: {next_states_qvalues}")
     # TODO PE with working with terminated q_vals
-    target = rewards + lr * next_states_qvalues * (1 - terminated)
+    target = rewards + 0.99 * next_states_qvalues
+    # print(f"target: {target}")
     loss = loss_function(predicted, target)
+    # print(f"loss: {loss}")
     optimizer.zero_grad()
     loss.backward()
+    # for name, parameter in policy_nn.named_parameters():
+    #     print(f"gradient of {name}: {parameter.grad}")
     optimizer.step()
 
 steps_done = 0
@@ -82,7 +124,8 @@ def e_greedy(q_values, functions, hyperparameters):
     eps_threshold = hyperparameters["eps_end"] + (hyperparameters["eps_start"] - hyperparameters["eps_end"]) \
                     * math.exp(-1. * steps_done / hyperparameters["eps_decay"])
     steps_done += 1
-    sample = random.random()
+    sample = random.random() # TODO 
+    # sample = eps_threshold + 0.00001
     if sample > eps_threshold:
         with torch.no_grad():
             return q_values.max(0).indices.item()
@@ -103,11 +146,14 @@ def training_loop(functions, hyperparameters):
     select_action = functions["select_action"]
     graph_increment = hyperparameters["graph_increment"]
     replay = replay_buffer(hyperparameters["replay_buffer_capacity"])
-    reward_tracker = []
     reward_sum = 0
 
-    for episode in tqdm(range(hyperparameters["episodes"])):
+    for episode in range(hyperparameters["episodes"]):
         state, _ = env.reset()
+
+        # TODO tests - del
+        # state = np.zeros(shape=(8,))
+
         state = torch.tensor(state, dtype=torch.float32, device=device)
         terminated = False
 
@@ -116,7 +162,13 @@ def training_loop(functions, hyperparameters):
                 state_qvalues = policy_nn(state)
             action = select_action(state_qvalues, functions, hyperparameters)
 
-            next_state, reward, terminated, _, _ = env.step(action) # TODO PE truncated, look at cart ex
+            # TODO test- del
+            # next_state, reward, terminated, _, _ = [np.array([t+1,t+1,t+1,t+1,t+1,t+1,t+1,t+1]), t+1, 0, 0, 0]
+            # if t == 3:
+            #     terminated = 1
+
+
+            next_state, reward, terminated, _, _ = env.step(action)
             reward_sum += reward
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
@@ -124,36 +176,20 @@ def training_loop(functions, hyperparameters):
             optimize_network(functions, hyperparameters, replay)
 
             target_nn.load_state_dict(policy_nn.state_dict())
+        
 
             if terminated:
+                episode_durations.append(reward_sum) # TODO
+                reward_sum = 0
+                plot_durations()
                 break
-        
-        if episode % graph_increment  == 0 and episode != 0:
-            reward_tracker.append(reward_sum / graph_increment)
-            reward_sum = 0
-            print(reward_tracker)
 
-    return reward_tracker
-
-
-def plot_reward(hyperparameters, reward_tracker: list[float]):
-    episodes = hyperparameters["episodes"]
-    graph_increment = hyperparameters["graph_increment"]
-
-    if episodes % graph_increment != 0:
-        print("graph increment must divide episodes for graph/data to be displayed")
-        return
-
-    x = [i for i in range(int(episodes / graph_increment - 1))]
-    y = reward_tracker
-
-    fig, ax = plt.subplots()
-    ax.plot(x,y,label="reward data", marker='o')
-    ax.set_title("simple line plot")
-    ax.set_xlabel("epsidoes")
-    ax.set_ylabel("num of rewards")
-    ax.legend()
+    print('Complete')
+    plot_durations(show_result=True)
+    plt.ioff()
     plt.show()
+
+
 
 def main():
     # env = gym.make('LunarLander-v2', render_mode="human")
@@ -168,6 +204,10 @@ def main():
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
     policy_nn = DQN(state_dim, action_dim).to(device)
+    policy_nn.load_state_dict(torch.load("lunar_landing/policy_nn_weights.pth"))
+    # for param in policy_nn.parameters():
+    #     print(param)
+
     target_nn = DQN(state_dim, action_dim).to(device)
     target_nn.load_state_dict(policy_nn.state_dict())
     lr = 1e-4
@@ -188,7 +228,7 @@ def main():
         "learning_rate": lr,
         "tau": 0.001,
         "replay_buffer_capacity": 50000,
-        "minibatch_size": 4,
+        "minibatch_size": 128,
         "state_dim": state_dim,
         "action_dim": action_dim,
         "eps_end": 0.05,
@@ -197,8 +237,8 @@ def main():
         # "gamma": 0.99
     }
 
-    reward_tracker = training_loop(functions, hyperparameters)
-    plot_reward(hyperparameters, reward_tracker)
+    training_loop(functions, hyperparameters)
+
 
     env.close()
 
