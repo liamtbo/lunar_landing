@@ -121,7 +121,9 @@ def training_loop(functions, hyperparameters):
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
 
-            optimize_network(functions, hyperparameters, replay)
+            for _ in range(hyperparameters["replay_steps"]):
+                optimize_network(functions, hyperparameters, replay)
+                           
 
             target_nn.load_state_dict(policy_nn.state_dict())
 
@@ -173,7 +175,7 @@ def main():
         "select_action": e_greedy # softmax or e_greedy
     }
     hyperparameters = {
-        "episodes": 300,
+        "episodes": 50,
         "graph_increment": 10,
         "replay_steps": 20,
         "learning_rate": lr,
