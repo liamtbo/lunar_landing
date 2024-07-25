@@ -168,7 +168,7 @@ def training_loop(functions, hyperparameters):
             #     terminated = 1
 
 
-            next_state, reward, terminated, _, _ = env.step(action)
+            next_state, reward, terminated, truncated, _ = env.step(action)
             reward_sum += reward
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
@@ -178,7 +178,7 @@ def training_loop(functions, hyperparameters):
             target_nn.load_state_dict(policy_nn.state_dict())
         
 
-            if terminated:
+            if terminated or truncated:
                 episode_durations.append(reward_sum) # TODO
                 reward_sum = 0
                 plot_durations()
