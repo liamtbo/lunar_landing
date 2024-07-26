@@ -107,12 +107,12 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
     target = rewards + 0.99 * next_states_qvalues
 
     # # TODO tests
-    # print_predicted = predicted.grad_fn
-    # while True:
-    #     print(print_predicted.next_functions)
-    #     if (print_predicted.next_functions == None):
-    #         break
-    #     print_predicted = print_predicted.next_functitons[0][0]
+    print_predicted = predicted.grad_fn
+    while True:
+        print(print_predicted.next_functions)
+        if (print_predicted.next_functions == None):
+            break
+        print_predicted = print_predicted.next_functions[0][0]
 
 
 
@@ -191,7 +191,7 @@ def training_loop(functions, hyperparameters):
         
 
             if terminated or truncated:
-                episode_durations.append(reward_sum) # TODO
+                episode_durations.append(reward_sum)
                 reward_sum = 0
                 plot_durations()
                 break
@@ -231,7 +231,7 @@ def main():
         "loss_function": nn.SmoothL1Loss(),
         "optimizer": optim.Adam(policy_nn.parameters(), lr=lr), # TODO amsgrad?, ADAMW?
         "device": device,
-        "select_action": softmax # softmax or e_greedy
+        "select_action": e_greedy # softmax or e_greedy
     }
     hyperparameters = {
         "episodes": 300,
@@ -239,7 +239,7 @@ def main():
         "replay_steps": 20,
         "learning_rate": lr,
         "tau": 0.001,
-        "replay_buffer_capacity": 50000,
+        "replay_buffer_capacity": 10000,
         "minibatch_size": 128,
         "state_dim": state_dim,
         "action_dim": action_dim,

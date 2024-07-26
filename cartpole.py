@@ -12,7 +12,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 # env = gym.make("CartPole-v1")
-env = gym.make('LunarLander-v2')
+env = gym.make('LunarLander-v2', render_mode="human")
 
 
 # set up matplotlib
@@ -84,10 +84,11 @@ state, info = env.reset()
 n_observations = len(state)
 
 policy_net = DQN(n_observations, n_actions).to(device)
+policy_net.load_state_dict(torch.load("lunar_landing/policy_nn_weights.pth"))
 target_net = DQN(n_observations, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
-optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
+optimizer = optim.Adam(policy_net.parameters(), lr=LR)
 memory = ReplayMemory(10000)
 
 
@@ -174,6 +175,16 @@ def optimize_model():
     # Compute the expected Q values
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
+    # # # TODO tests
+    # print_predicted = state_action_values.grad_fn
+    # while True:
+    #     print(print_predicted.next_functions)
+    #     if (print_predicted.next_functions == None):
+    #         break
+    #     print_predicted = print_predicted.next_functions[0][0]
+
+
+
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
@@ -181,8 +192,6 @@ def optimize_model():
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
-    # In-place gradient clipping
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
 if torch.cuda.is_available() or torch.backends.mps.is_available():
@@ -217,13 +226,7 @@ for i_episode in range(num_episodes):
         # Perform one step of the optimization (on the policy network)
         optimize_model()
 
-        # Soft update of the target network's weights
-        # θ′ ← τ θ + (1 −τ )θ′
-        target_net_state_dict = target_net.state_dict()
-        policy_net_state_dict = policy_net.state_dict()
-        for key in policy_net_state_dict:
-            target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
-        target_net.load_state_dict(target_net_state_dict)
+        target_net.load_state_dict(policy_net.state_dict())
 
         if done:
             episode_durations.append(reward_sum) # TODO
