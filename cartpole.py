@@ -12,7 +12,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 # env = gym.make("CartPole-v1")
-env = gym.make('LunarLander-v2')
+env = gym.make('LunarLander-v2', render_mode="human")
 
 
 # set up matplotlib

@@ -144,9 +144,11 @@ def training_loop(functions, hyperparameters):
     target_nn = functions["target_nn"]
     device = functions["device"]
     select_action = functions["select_action"]
-    graph_increment = hyperparameters["graph_increment"]
     replay = replay_buffer(hyperparameters["replay_buffer_capacity"])
     reward_sum = 0
+
+    # policy_nn.train()
+    # target_nn.eval()
 
     for episode in range(hyperparameters["episodes"]):
         state, _ = env.reset()
@@ -173,8 +175,8 @@ def training_loop(functions, hyperparameters):
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
 
-            for _ in range(hyperparameters["replay_steps"]):
-                optimize_network(functions, hyperparameters, replay)
+            # for _ in range(hyperparameters["replay_steps"]):
+            optimize_network(functions, hyperparameters, replay)
 
             target_nn.load_state_dict(policy_nn.state_dict())
         
@@ -220,7 +222,7 @@ def main():
         "loss_function": nn.SmoothL1Loss(),
         "optimizer": optim.Adam(policy_nn.parameters(), lr=lr), # TODO amsgrad?, ADAMW?
         "device": device,
-        "select_action": softmax # softmax or e_greedy
+        "select_action": e_greedy # softmax or e_greedy
     }
     hyperparameters = {
         "episodes": 300,
@@ -228,7 +230,7 @@ def main():
         "replay_steps": 20,
         "learning_rate": lr,
         "tau": 0.001,
-        "replay_buffer_capacity": 50000,
+        "replay_buffer_capacity": 10000,
         "minibatch_size": 128,
         "state_dim": state_dim,
         "action_dim": action_dim,
