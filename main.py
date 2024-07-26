@@ -104,8 +104,18 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
     with torch.no_grad():
         next_states_qvalues = torch.max(target_nn(next_states), dim=1).values * (1 - terminated)
     # print(f"next_states_qvals: {next_states_qvalues}")
-    # TODO PE with working with terminated q_vals
     target = rewards + 0.99 * next_states_qvalues
+
+    # # TODO tests
+    # print_predicted = predicted.grad_fn
+    # while True:
+    #     print(print_predicted.next_functions)
+    #     if (print_predicted.next_functions == None):
+    #         break
+    #     print_predicted = print_predicted.next_functitons[0][0]
+
+
+
     # print(f"target: {target}")
     loss = loss_function(predicted, target)
     # print(f"loss: {loss}")
@@ -170,6 +180,7 @@ def training_loop(functions, hyperparameters):
 
             next_state, reward, terminated, truncated, _ = env.step(action)
             reward_sum += reward
+
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
 
