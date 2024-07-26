@@ -1,17 +1,19 @@
-import torch
-import torch.nn as nn # actin-value nn
-import torch.optim as optim # optimizer
-import torch.nn.functional as F # activates and loss functions
-
-import random
-from tqdm import tqdm
 import gymnasium as gym
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+
+import math
+import random
+import numpy as np
+from tqdm import tqdm
+from itertools import count
+import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
 
-# deep Q-network
-## nn.Module is a base class that provides functionality to organize and manage 
-## the parameters of a neural network.
 class DQN(nn.Module): 
     def __init__(self, input_dim, output_dim):
         super(DQN, self).__init__()
@@ -26,7 +28,7 @@ class DQN(nn.Module):
         x = F.relu(self.layer2(x))
         return self.layer3(x)
     
-Transition = namedtuple("Transition", ("state", "action", "reward", "next_state", "done"))
+Transition = namedtuple("Transition", ("state", "action", "reward", "next_state", "terminated"))
 
 class replay_buffer():
     def __init__(self, replay_buff_capacity):
@@ -42,140 +44,202 @@ class replay_buffer():
         return len(self.replay_buffer)
 
 
-def optimize_network(sample, model, target_model, optimize_net_init):
+# set up matplotlib
+is_ipython = 'inline' in matplotlib.get_backend()
+if is_ipython:
+    from IPython import display
 
-    loss_function = optimize_net_init["loss_function"]
-    optimizer = optimize_net_init["optimizer"]
-    gamma = optimize_net_init["gamma"]
+plt.ion()
 
-    batch = Transition(*zip(*sample)) # "*" unpacks sample, zip puts cols together, * unpacks zip
-    states = torch.tensor(batch.state, dtype=torch.float)
+episode_durations = []
 
-    actions = torch.tensor(batch.action, dtype=torch.int)
-    rewards = torch.tensor(batch.reward, dtype=torch.float)
-    next_states = torch.tensor(batch.next_state, dtype=torch.float)
-    done = torch.tensor(batch.done, dtype=torch.float)
 
-    # TODO with_no_grad? ALSO, calculating states qvals twice ! once here one in train loop
-    states_qvalues = model(states) 
-    next_states_qvalues = target_model(next_states)
+def plot_durations(show_result=False):
+    plt.figure(1)
+    durations_t = torch.tensor(episode_durations, dtype=torch.float)
+    if show_result:
+        plt.title('Result')
+    else:
+        plt.clf()
+        plt.title('Training...')
+    plt.xlabel('Episode')
+    plt.ylabel('Duration')
+    plt.plot(durations_t.numpy())
+    # Take 100 episode averages and plot them too
+    if len(durations_t) >= 100:
+        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
+        means = torch.cat((torch.zeros(99), means))
+        plt.plot(means.numpy())
 
-    # # expected sarsa
-    next_state_qvals_probs = torch.softmax(next_states_qvalues, dim=1)
-    sum_next_states_qvals_times_probs = torch.sum(next_states_qvalues * next_state_qvals_probs, dim=1)
+    plt.pause(0.001)  # pause a bit so that plots are updated
+    if is_ipython:
+        if not show_result:
+            display.display(plt.gcf())
+            display.clear_output(wait=True)
+        else:
+            display.display(plt.gcf())
 
-    # # TD error
-    td_targets = rewards + gamma * sum_next_states_qvals_times_probs * (1 - done)
-    predicted_values = states_qvalues[torch.arange(states_qvalues.size(0)), actions]
-    loss = loss_function(predicted_values, td_targets)
+def optimize_network(functions, hyperparameters, replay: replay_buffer):
+    if len(replay) < hyperparameters["minibatch_size"]:
+        return
+    device = functions["device"]
+    policy_nn = functions["policy_nn"]
+    target_nn = functions["target_nn"]
+    lr = hyperparameters["learning_rate"]
+    # gamma = hyperparameters["gamma"]
+    loss_function = functions["loss_function"]
+    optimizer = functions["optimizer"]
 
-    # # backpropagation
+    batch = replay.sample(hyperparameters["minibatch_size"])
+    batch = Transition(*zip(*batch))
+    states = torch.tensor(np.array(batch.state), dtype=torch.float32, device=device)
+    actions = torch.tensor(batch.action, dtype=torch.long, device=device).unsqueeze(1) # need long for gather
+    rewards = torch.tensor(batch.reward, dtype=torch.float32, device=device)
+    next_states = torch.tensor(np.array(batch.next_state), dtype=torch.float32, device=device)
+    terminated = torch.tensor(batch.terminated, dtype=int, device=device)
+
+
+    predicted  = policy_nn(states).gather(1, actions).squeeze(1)
+    # print(f"predicted: {predicted}")
+    with torch.no_grad():
+        next_states_qvalues = torch.max(target_nn(next_states), dim=1).values * (1 - terminated)
+    # print(f"next_states_qvals: {next_states_qvalues}")
+    # TODO PE with working with terminated q_vals
+    target = rewards + 0.99 * next_states_qvalues
+    # print(f"target: {target}")
+    loss = loss_function(predicted, target)
+    # print(f"loss: {loss}")
     optimizer.zero_grad()
     loss.backward()
+    # for name, parameter in policy_nn.named_parameters():
+    #     print(f"gradient of {name}: {parameter.grad}")
     optimizer.step()
-    
 
-def train_loop(train_loop_init, optimize_net_init) -> list[float]:
-    policy_nn = train_loop_init["policy_nn"]
-    target_nn = train_loop_init["target_nn"]
+steps_done = 0
 
-    env = train_loop_init["env"]
-    graph_increment = train_loop_init["graph_increment"]
-    tau = optimize_net_init["tau"]
-    reward_tracker = []
+def e_greedy(q_values, functions, hyperparameters):
+    env = functions["env"]
+    device = functions["device"]
+    global steps_done
+    eps_threshold = hyperparameters["eps_end"] + (hyperparameters["eps_start"] - hyperparameters["eps_end"]) \
+                    * math.exp(-1. * steps_done / hyperparameters["eps_decay"])
+    steps_done += 1
+    sample = random.random() # TODO 
+    # sample = eps_threshold + 0.00001
+    if sample > eps_threshold:
+        with torch.no_grad():
+            return q_values.max(0).indices.item()
+    else:
+        return torch.tensor([env.action_space.sample()], device=device, dtype=torch.long).item()
+
+def softmax(state_qvalues, functions, hyperparameters):
+    state_qvalues_probabilities = torch.softmax(state_qvalues, dim=0)
+    state_qvalues_dis = torch.distributions.Categorical(state_qvalues_probabilities)
+    action = state_qvalues_dis.sample().item()
+    return action
+
+def training_loop(functions, hyperparameters):
+    env = functions["env"]
+    policy_nn = functions["policy_nn"]
+    target_nn = functions["target_nn"]
+    device = functions["device"]
+    select_action = functions["select_action"]
+    graph_increment = hyperparameters["graph_increment"]
+    replay = replay_buffer(hyperparameters["replay_buffer_capacity"])
     reward_sum = 0
-    policy_nn.train()
-    replay = replay_buffer(optimize_net_init["replay_buff_capacity"])
 
-    for episode in tqdm(range(train_loop_init["episodes"])):
+    for episode in range(hyperparameters["episodes"]):
         state, _ = env.reset()
-        state = torch.tensor(state, dtype=torch.float)
-        # env.render()
-        done = False
 
-        while not done:
-            action_values = policy_nn(state)
-            # softmax
-            action_probabilies = torch.softmax(action_values / tau, dim=0)# dim is dimension to compute softmax on
-            action_dis = torch.distributions.Categorical(action_probabilies)
-            action = action_dis.sample().item()
-            # e-greedy
-            # if np.random.rand() < .9:
-            #     action = torch.argmax(action_values).item()
-            # else:
-            #     action = torch.randint(0,len(action_values), (1,)).item()
+        # TODO tests - del
+        # state = np.zeros(shape=(8,))
 
-            next_state, reward, done, _, _ = env.step(action)
+        state = torch.tensor(state, dtype=torch.float32, device=device)
+        terminated = False
 
-            replay.push(state.tolist(), action, reward, next_state, done)
+        for t in count():
+            with torch.no_grad():
+                state_qvalues = policy_nn(state)
+            action = select_action(state_qvalues, functions, hyperparameters)
+
+            # TODO test- del
+            # next_state, reward, terminated, _, _ = [np.array([t+1,t+1,t+1,t+1,t+1,t+1,t+1,t+1]), t+1, 0, 0, 0]
+            # if t == 3:
+            #     terminated = 1
+
+
+            next_state, reward, terminated, truncated, _ = env.step(action)
             reward_sum += reward
-            state = torch.tensor(next_state)
-            # complete batch updater here
-            if len(replay) > optimize_net_init["minibatch_size"]:
-                target_nn.load_state_dict(policy_nn.state_dict())
+            replay.push(state.tolist(), action, reward, next_state, terminated)
+            state = torch.tensor(next_state, dtype=torch.float32, device=device)
 
-                for _ in range(optimize_net_init["replay_steps"]):
-                    sample = replay.sample(optimize_net_init["minibatch_size"])
-                    optimize_network(sample, policy_nn, target_nn, optimize_net_init)
+            for _ in range(hyperparameters["replay_steps"]):
+                optimize_network(functions, hyperparameters, replay)
 
-        if episode % graph_increment  == 0 and episode != 0:
-            reward_tracker.append(reward_sum / graph_increment)
-            reward_sum = 0
-            print(reward_tracker)
+            target_nn.load_state_dict(policy_nn.state_dict())
+        
 
-    return reward_tracker
+            if terminated or truncated:
+                episode_durations.append(reward_sum) # TODO
+                reward_sum = 0
+                plot_durations()
+                break
 
-def plot_reward(train_loop_init, reward_tracker: list[float]):
-    episodes = train_loop_init["episodes"]
-    graph_increment = train_loop_init["graph_increment"]
-    x = [i for i in range(int(episodes / graph_increment - 1))]
-    y = reward_tracker
-
-    fig, ax = plt.subplots()
-    ax.plot(x,y,label="reward data", marker='o')
-    ax.set_title("simple line plot")
-    ax.set_xlabel("epsidoes")
-    ax.set_ylabel("num of rewards")
-    ax.legend()
+    print('Complete')
+    plot_durations(show_result=True)
+    plt.ioff()
     plt.show()
 
+
+
 def main():
-    # env = gym.make('LunarLander-v2', render_mode="human")
-    env = gym.make('LunarLander-v2')
+    env = gym.make('LunarLander-v2', render_mode="human")
+    # env = gym.make('LunarLander-v2')
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else
+        "mps" if torch.backends.mps.is_available() else
+        "cpu"
+    )
+
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
-    policy_nn = DQN(state_dim, action_dim)
-    target_nn = DQN(state_dim, action_dim)
-    target_nn.load_state_dict(policy_nn.state_dict())
+    policy_nn = DQN(state_dim, action_dim).to(device)
+    policy_nn.load_state_dict(torch.load("lunar_landing/policy_nn_weights.pth"))
+    # for param in policy_nn.parameters():
+    #     print(param)
 
-    device = (
-        "cuda" if torch.cuda.is_available()
-        else "mps" if torch.backends.mps.is_available()
-        else "cpu"
-    )
-    train_loop_init = {
+    target_nn = DQN(state_dim, action_dim).to(device)
+    target_nn.load_state_dict(policy_nn.state_dict())
+    lr = 1e-4
+
+    functions = {
         "env": env,
         "policy_nn": policy_nn,
         "target_nn": target_nn,
-        "episodes":300, # make sure graph_incremenet | episodes
-        "graph_increment": 10,
-        "timeout": 500,
-        "device": device
+        "loss_function": nn.SmoothL1Loss(),
+        "optimizer": optim.Adam(policy_nn.parameters(), lr=lr), # TODO amsgrad?, ADAMW?
+        "device": device,
+        "select_action": softmax # softmax or e_greedy
     }
-    optimize_net_init = {
-        "loss_function": F.mse_loss,
-        "optimizer": optim.Adam(policy_nn.parameters(), lr=1e-3, betas = (0.9, 0.999), eps = 1e-8),
+    hyperparameters = {
+        "episodes": 300,
+        "graph_increment": 10,
         "replay_steps": 20,
+        "learning_rate": lr,
+        "tau": 0.001,
+        "replay_buffer_capacity": 50000,
+        "minibatch_size": 128,
         "state_dim": state_dim,
         "action_dim": action_dim,
-        "gamma": 0.99,
-        "tau": 0.001,
-        "replay_buff_capacity": 50000,
-        "minibatch_size": 128
+        "eps_end": 0.05,
+        "eps_start": 0.9,
+        "eps_decay": 1000,
+        # "gamma": 0.99
     }
-    reward_tracker = train_loop(train_loop_init, optimize_net_init)
 
-    plot_reward(train_loop_init, reward_tracker)
+    training_loop(functions, hyperparameters)
+
 
     env.close()
 

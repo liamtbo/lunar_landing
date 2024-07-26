@@ -173,7 +173,8 @@ def training_loop(functions, hyperparameters):
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
 
-            optimize_network(functions, hyperparameters, replay)
+            for _ in range(hyperparameters["replay_steps"]):
+                optimize_network(functions, hyperparameters, replay)
 
             target_nn.load_state_dict(policy_nn.state_dict())
         
@@ -192,8 +193,8 @@ def training_loop(functions, hyperparameters):
 
 
 def main():
-    # env = gym.make('LunarLander-v2', render_mode="human")
-    env = gym.make('LunarLander-v2')
+    env = gym.make('LunarLander-v2', render_mode="human")
+    # env = gym.make('LunarLander-v2')
 
     device = torch.device(
         "cuda" if torch.cuda.is_available() else
@@ -219,7 +220,7 @@ def main():
         "loss_function": nn.SmoothL1Loss(),
         "optimizer": optim.Adam(policy_nn.parameters(), lr=lr), # TODO amsgrad?, ADAMW?
         "device": device,
-        "select_action": e_greedy # softmax or e_greedy
+        "select_action": softmax # softmax or e_greedy
     }
     hyperparameters = {
         "episodes": 300,
