@@ -1,13 +1,4 @@
 import torch
 import numpy as np
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from collections import namedtuple, deque
-import random
-
-t1 = torch.tensor([[1,1],
-                   [2,2]])
-t2 = torch.tensor([[0],[1]])
-
-print(t1 * t2)
+print(3e-5 * np.power(2.0, np.array([-6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5])))
+print(np.power(2.0, np.array([-6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5])))

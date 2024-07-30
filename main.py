@@ -13,6 +13,7 @@ from itertools import count
 import matplotlib
 import matplotlib.pyplot as plt
 from collections import namedtuple, deque
+from torch.nn.utils import clip_grad_norm_
 
 random.seed(1)
 
@@ -32,18 +33,18 @@ class DQN(nn.Module):
     
 Transition = namedtuple("Transition", ("state", "action", "reward", "next_state", "terminated"))
 
-class replay_buffer():
+class ReplayBuffer():
     def __init__(self, replay_buff_capacity):
-        self.replay_buffer = deque([], maxlen=replay_buff_capacity)
+        self.ReplayBuffer = deque([], maxlen=replay_buff_capacity)
 
     def push(self, *args):
-        self.replay_buffer.append(Transition(*args))
+        self.ReplayBuffer.append(Transition(*args))
     
     def sample(self, batch_size):
-        return random.sample(self.replay_buffer, batch_size)
+        return random.sample(self.ReplayBuffer, batch_size)
     
     def __len__(self):
-        return len(self.replay_buffer)
+        return len(self.ReplayBuffer)
 
 
 # set up matplotlib
@@ -53,12 +54,32 @@ if is_ipython:
 
 plt.ion()
 
-episode_durations = []
+episode_rewards = []
+episode_norms = []
 
+def plot_norms(show_result=False):
+    plt.figure(2)
+    norms_t = torch.tensor(episode_norms, dtype=torch.float)
+    plt.clf() # clears current fig
+    plt.title("Training...")
+    plt.xlabel("Episode")
+    plt.ylabel("L2 Norms")
+    plt.plot(norms_t.numpy())
+    if len(norms_t) >= 100:
+        means = norms_t.unfold(0, 100, 1).mean(1).view(-1)
+        means = torch.cat((torch.zeros(99), means))
+        plt.plot(means.numpy())
+        plt.pause(0.001)  # pause a bit so that plots are updated
+    if is_ipython:
+        if not show_result:
+            display.display(plt.gcf())
+            display.clear_output(wait=True)
+        else:
+            display.display(plt.gcf())
 
-def plot_durations(show_result=False):
+def plot_rewards(show_result=False):
     plt.figure(1)
-    durations_t = torch.tensor(episode_durations, dtype=torch.float)
+    rewards_t = torch.tensor(episode_rewards, dtype=torch.float)
     if show_result:
         plt.title('Result')
     else:
@@ -66,11 +87,11 @@ def plot_durations(show_result=False):
         plt.title('Training...')
     plt.xlabel('Episode')
     plt.ylabel('Reward')
-    plt.plot(durations_t.numpy())
+    plt.plot(rewards_t.numpy())
     # Take 100 episode averages and plot them too
-    if len(durations_t) >= 100:
-        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
+    if len(rewards_t) >= 20:
+        means = rewards_t.unfold(0, 20, 1).mean(1).view(-1)
+        means = torch.cat((torch.zeros(19), means))
         plt.plot(means.numpy())
 
     plt.pause(0.001)  # pause a bit so that plots are updated
@@ -81,9 +102,17 @@ def plot_durations(show_result=False):
         else:
             display.display(plt.gcf())
 
-def optimize_network(functions, hyperparameters, replay: replay_buffer):
-    if len(replay) < hyperparameters["minibatch_size"]:
-        return
+def L2_norm(model: DQN):
+    total_norm = 0
+    for p in model.parameters():
+        if p.grad is None:
+            continue
+        param_norm = p.grad.data.norm(2)
+        total_norm += param_norm.item() ** 2
+    return total_norm ** 0.5
+
+def optimize_network(functions, hyperparameters, replay: ReplayBuffer):
+
     device = functions["device"]
     policy_nn = functions["policy_nn"]
     target_nn = functions["target_nn"]
@@ -114,12 +143,18 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
     target = rewards + 0.99 * sum_next_states_qvals_times_probs
     # print(f"target: {target}")
     loss = loss_function(predicted, target)
+    # print(f"\tloss: {loss}")
     # print(f"loss: {loss}")
     optimizer.zero_grad()
     loss.backward()
-    # for name, parameter in policy_nn.named_parameters():
-    #     print(f"gradient of {name}: {parameter.grad}")
+
+    # compute L2 norm
+    ## divicde by replay steps to get avg grad norm per episode
+    clip_grad_norm_(policy_nn.parameters(), max_norm=0.5)
+    avg_norm = L2_norm(policy_nn) / hyperparameters["replay_steps"]
+
     optimizer.step()
+    return avg_norm
 
 steps_done = 0
 
@@ -130,8 +165,7 @@ def e_greedy(q_values, functions, hyperparameters):
     eps_threshold = hyperparameters["eps_end"] + (hyperparameters["eps_start"] - hyperparameters["eps_end"]) \
                     * math.exp(-1. * steps_done / hyperparameters["eps_decay"])
     steps_done += 1
-    sample = random.random() # TODO 
-    # sample = eps_threshold + 0.00001
+    sample = random.random()
     if sample > eps_threshold:
         with torch.no_grad():
             return q_values.max(0).indices.item()
@@ -140,6 +174,7 @@ def e_greedy(q_values, functions, hyperparameters):
 
 def softmax(state_qvalues, functions, hyperparameters):
     state_qvalues_probabilities = torch.softmax(state_qvalues, dim=0)
+    # print(f"\tstate_qvalues_probabilites: {state_qvalues_probabilities}")
     state_qvalues_dis = torch.distributions.Categorical(state_qvalues_probabilities)
     action = state_qvalues_dis.sample().item()
     return action
@@ -151,27 +186,21 @@ def training_loop(functions, hyperparameters):
     device = functions["device"]
     select_action = functions["select_action"]
     graph_increment = hyperparameters["graph_increment"]
-    replay = replay_buffer(hyperparameters["replay_buffer_capacity"])
+    replay = ReplayBuffer(hyperparameters["ReplayBuffer_capacity"])
     reward_sum = 0
+    L2_norm_sum = 0
 
     for episode in range(hyperparameters["episodes"]):
+        # print(f"Episode: {episode}")
         state, _ = env.reset()
-
-        # TODO tests - del
-        # state = np.zeros(shape=(8,))
-
         state = torch.tensor(state, dtype=torch.float32, device=device)
         terminated = False
 
         for t in count():
             with torch.no_grad():
                 state_qvalues = policy_nn(state)
+            # print(f"\tstate_qvalues: {state_qvalues}")
             action = select_action(state_qvalues, functions, hyperparameters)
-
-            # TODO test- del
-            # next_state, reward, terminated, _, _ = [np.array([t+1,t+1,t+1,t+1,t+1,t+1,t+1,t+1]), t+1, 0, 0, 0]
-            # if t == 3:
-            #     terminated = 1
 
 
             next_state, reward, terminated, truncated, info = env.step(action)
@@ -179,24 +208,30 @@ def training_loop(functions, hyperparameters):
             replay.push(state.tolist(), action, reward, next_state, terminated)
             state = torch.tensor(next_state, dtype=torch.float32, device=device)
 
-            for _ in range(hyperparameters["replay_steps"]):
-                optimize_network(functions, hyperparameters, replay)
+            if len(replay) >= hyperparameters["minibatch_size"]:
+                for _ in range(hyperparameters["replay_steps"]):
+                    L2_norm_sum += optimize_network(functions, hyperparameters, replay)
 
-            target_nn.load_state_dict(policy_nn.state_dict())
-        
+            TAU = hyperparameters["tau"]
+            target_net_state_dict = target_nn.state_dict()
+            policy_net_state_dict = policy_nn.state_dict()
+            for key in policy_net_state_dict:
+                target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+            target_nn.load_state_dict(target_net_state_dict)
 
             if terminated or truncated:
-                episode_durations.append(reward_sum) # TODO
+                episode_rewards.append(reward_sum)
+                episode_norms.append(L2_norm_sum)
+                L2_norm_sum = 0
                 reward_sum = 0
-                plot_durations()
+                plot_rewards()
+                plot_norms()
                 break
 
     print('Complete')
-    plot_durations(show_result=True)
+    plot_rewards(show_result=True)
     plt.ioff()
     plt.show()
-
-
 
 def main():
     env = gym.make('LunarLander-v2', render_mode="human")
@@ -213,11 +248,11 @@ def main():
     policy_nn = DQN(state_dim, action_dim).to(device)
     # torch.save(policy_nn.state_dict(), "lunar_landing/policy_nn_weights.pth")
     policy_nn.load_state_dict(torch.load("lunar_landing/policy_nn_weights.pth"))
-    # for param in policy_nn.parameters():
-    #     print(param)
+    # policy_nn.train()
     target_nn = DQN(state_dim, action_dim).to(device)
     target_nn.load_state_dict(policy_nn.state_dict())
-    lr = 1e-4
+    # target_nn.eval()
+    lr = 1e-5
 
     functions = {
         "env": env,
@@ -233,15 +268,14 @@ def main():
         "graph_increment": 10,
         "replay_steps": 4,
         "learning_rate": lr,
-        "tau": 0.001,
-        "replay_buffer_capacity": 50000,
-        "minibatch_size": 8,
+        "ReplayBuffer_capacity": 10000,
+        "minibatch_size": 128,
         "state_dim": state_dim,
         "action_dim": action_dim,
         "eps_end": 0.05,
         "eps_start": 0.9,
         "eps_decay": 1000,
-        # "gamma": 0.99
+        "tau": 0.001
     }
 
     training_loop(functions, hyperparameters)

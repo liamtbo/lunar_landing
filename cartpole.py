@@ -201,7 +201,7 @@ for i_episode in range(num_episodes):
         observation, reward, terminated, truncated, _ = env.step(action.item())
         reward = torch.tensor([reward], device=device)
         done = terminated or truncated
-        reward_sum += reward #TODO
+        reward_sum += reward 
 
         if terminated:
             next_state = None
