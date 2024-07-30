@@ -10,10 +10,11 @@ import random
 import numpy as np
 from tqdm import tqdm
 from itertools import count
-import matplotlib
-import matplotlib.pyplot as plt
+
 from collections import namedtuple, deque
 from torch.nn.utils import clip_grad_norm_
+
+import plots
 
 random.seed(1)
 
@@ -47,60 +48,9 @@ class ReplayBuffer():
         return len(self.ReplayBuffer)
 
 
-# set up matplotlib
-is_ipython = 'inline' in matplotlib.get_backend()
-if is_ipython:
-    from IPython import display
-
-plt.ion()
-
 episode_rewards = []
 episode_norms = []
 
-def plot_norms(show_result=False):
-    plt.figure(2)
-    norms_t = torch.tensor(episode_norms, dtype=torch.float)
-    plt.clf() # clears current fig
-    plt.title("Training...")
-    plt.xlabel("Episode")
-    plt.ylabel("L2 Norms")
-    plt.plot(norms_t.numpy())
-    if len(norms_t) >= 100:
-        means = norms_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
-        plt.plot(means.numpy())
-        plt.pause(0.001)  # pause a bit so that plots are updated
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
-
-def plot_rewards(show_result=False):
-    plt.figure(1)
-    rewards_t = torch.tensor(episode_rewards, dtype=torch.float)
-    if show_result:
-        plt.title('Result')
-    else:
-        plt.clf()
-        plt.title('Training...')
-    plt.xlabel('Episode')
-    plt.ylabel('Reward')
-    plt.plot(rewards_t.numpy())
-    # Take 100 episode averages and plot them too
-    if len(rewards_t) >= 20:
-        means = rewards_t.unfold(0, 20, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(19), means))
-        plt.plot(means.numpy())
-
-    plt.pause(0.001)  # pause a bit so that plots are updated
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
 
 def L2_norm(model: DQN):
     total_norm = 0
@@ -224,14 +174,12 @@ def training_loop(functions, hyperparameters):
                 episode_norms.append(L2_norm_sum)
                 L2_norm_sum = 0
                 reward_sum = 0
-                plot_rewards()
-                plot_norms()
+                plots.plot_rewards(episode_rewards)
+                plots.plot_norms(episode_norms)
                 break
 
     print('Complete')
-    plot_rewards(show_result=True)
-    plt.ioff()
-    plt.show()
+
 
 def main():
     env = gym.make('LunarLander-v2', render_mode="human")
