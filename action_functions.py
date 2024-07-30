@@ -3,13 +3,12 @@ import random
 import math
 
 
-def e_greedy(q_values, functions, hp):
+def e_greedy(q_values, functions, hp, t):
     env = functions["env"]
     device = functions["device"]
     global steps_done
     eps_threshold = hp["eps_end"] + (hp["eps_start"] - hp["eps_end"]) \
-                    * math.exp(-1. * steps_done / hp["eps_decay"])
-    steps_done += 1
+                    * math.exp(-1. * t / hp["eps_decay"])
     sample = random.random()
     if sample > eps_threshold:
         with torch.no_grad():

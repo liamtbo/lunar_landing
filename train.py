@@ -8,9 +8,6 @@ import numpy as np
 from itertools import count
 
 from collections import namedtuple, deque
-from torch.nn.utils import clip_grad_norm_
-
-import plots
 
 Transition = namedtuple("Transition", ("state", "action", "reward", "next_state", "terminated"))
 
@@ -83,10 +80,8 @@ def optimize_network(functions, hp, replay: ReplayBuffer):
 
 def training(functions, hp):
     replay = ReplayBuffer(hp["ReplayBuffer_capacity"])
-    random.seed(hp["seed"])
     reward_sum = 0
     L2_norm_sum = 0
-    # print(f"Episode: {episode}")
     state, _ = functions["env"].reset()
     state = torch.tensor(state, dtype=torch.float32, device=functions["device"])
     terminated = False
@@ -95,7 +90,7 @@ def training(functions, hp):
         with torch.no_grad():
             state_qvalues = functions["policy_nn"](state)
         # print(f"\tstate_qvalues: {state_qvalues}")
-        action = functions["select_action"](state_qvalues, functions, hp)
+        action = functions["select_action"](state_qvalues, functions, hp, t)
 
 
         next_state, reward, terminated, truncated, info = functions["env"].step(action)
