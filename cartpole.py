@@ -11,8 +11,12 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+random.seed(1)
+
 # env = gym.make("CartPole-v1")
-env = gym.make('LunarLander-v2', render_mode="human")
+# env = gym.make('LunarLander-v2', render_mode="human")
+env = gym.make('LunarLander-v2')
+
 
 
 # set up matplotlib
@@ -84,6 +88,7 @@ state, info = env.reset()
 n_observations = len(state)
 
 policy_net = DQN(n_observations, n_actions).to(device)
+policy_net.load_state_dict(torch.load("lunar_landing/policy_nn_weights"))
 target_net = DQN(n_observations, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
