@@ -12,7 +12,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 # env = gym.make("CartPole-v1")
-env = gym.make('LunarLander-v2', render_mode="human")
+# env = gym.make('LunarLander-v2', render_mode="human")
+env = gym.make('LunarLander-v2')
+
 
 
 # set up matplotlib
@@ -110,19 +112,19 @@ def select_action(state):
         return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
 
 
-episode_durations = []
+episode_rewards = []
 
 
 def plot_durations(show_result=False):
     plt.figure(1)
-    durations_t = torch.tensor(episode_durations, dtype=torch.float)
+    durations_t = torch.tensor(episode_rewards, dtype=torch.float)
     if show_result:
         plt.title('Result')
     else:
         plt.clf()
         plt.title('Training...')
     plt.xlabel('Episode')
-    plt.ylabel('Duration')
+    plt.ylabel('reward')
     plt.plot(durations_t.numpy())
     # Take 100 episode averages and plot them too
     if len(durations_t) >= 100:
@@ -226,7 +228,7 @@ for i_episode in range(num_episodes):
         target_net.load_state_dict(target_net_state_dict)
 
         if done:
-            episode_durations.append(reward_sum) # TODO
+            episode_rewards.append(reward_sum) # TODO
             reward_sum = 0
             plot_durations()
             break
