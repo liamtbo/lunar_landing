@@ -11,9 +11,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-# env = gym.make("CartPole-v1")
-env = gym.make('LunarLander-v2', render_mode="human")
-
+env = gym.make("LunarLander-v2")
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -28,6 +26,7 @@ device = torch.device(
     "mps" if torch.backends.mps.is_available() else
     "cpu"
 )
+
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
 
@@ -37,7 +36,7 @@ class ReplayMemory(object):
     def __init__(self, capacity):
         self.memory = deque([], maxlen=capacity)
 
-    def push(self, *args): # * means any number of args
+    def push(self, *args):
         """Save a transition"""
         self.memory.append(Transition(*args))
 
@@ -84,11 +83,10 @@ state, info = env.reset()
 n_observations = len(state)
 
 policy_net = DQN(n_observations, n_actions).to(device)
-policy_net.load_state_dict(torch.load("lunar_landing/policy_nn_weights.pth"))
 target_net = DQN(n_observations, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
-optimizer = optim.Adam(policy_net.parameters(), lr=LR)
+optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory(10000)
 
 
@@ -146,7 +144,6 @@ def optimize_model():
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
-    tmp1 = zip(*transitions)
     batch = Transition(*zip(*transitions))
 
     # Compute a mask of non-final states and concatenate the batch elements
@@ -162,7 +159,7 @@ def optimize_model():
     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch).gather(1, action_batch) # along first dim, index from action_batch
+    state_action_values = policy_net(state_batch).gather(1, action_batch)
 
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
@@ -175,16 +172,6 @@ def optimize_model():
     # Compute the expected Q values
     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
 
-    # # # TODO tests
-    # print_predicted = state_action_values.grad_fn
-    # while True:
-    #     print(print_predicted.next_functions)
-    #     if (print_predicted.next_functions == None):
-    #         break
-    #     print_predicted = print_predicted.next_functions[0][0]
-
-
-
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
@@ -192,6 +179,8 @@ def optimize_model():
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
+    # In-place gradient clipping
+    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
     optimizer.step()
 
 if torch.cuda.is_available() or torch.backends.mps.is_available():
@@ -199,10 +188,9 @@ if torch.cuda.is_available() or torch.backends.mps.is_available():
 else:
     num_episodes = 50
 
-reward_sum = 0 # TODO
-
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
+    reward_sum = 0
     state, info = env.reset()
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
@@ -210,8 +198,7 @@ for i_episode in range(num_episodes):
         observation, reward, terminated, truncated, _ = env.step(action.item())
         reward = torch.tensor([reward], device=device)
         done = terminated or truncated
-        reward_sum += reward #TODO
-
+        reward_sum += reward
         if terminated:
             next_state = None
         else:
@@ -226,10 +213,16 @@ for i_episode in range(num_episodes):
         # Perform one step of the optimization (on the policy network)
         optimize_model()
 
-        target_net.load_state_dict(policy_net.state_dict())
+        # Soft update of the target network's weights
+        # θ′ ← τ θ + (1 −τ )θ′
+        target_net_state_dict = target_net.state_dict()
+        policy_net_state_dict = policy_net.state_dict()
+        for key in policy_net_state_dict:
+            target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+        target_net.load_state_dict(target_net_state_dict)
 
         if done:
-            episode_durations.append(reward_sum) # TODO
+            episode_durations.append(reward_sum)
             reward_sum = 0
             plot_durations()
             break
