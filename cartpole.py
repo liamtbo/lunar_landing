@@ -88,7 +88,7 @@ state, info = env.reset()
 n_observations = len(state)
 
 policy_net = DQN(n_observations, n_actions).to(device)
-policy_net.load_state_dict(torch.load("lunar_landing/policy_nn_weights"))
+# policy_net.load_state_dict(torch.load("lunar_landing/policy_nn_weights"))
 target_net = DQN(n_observations, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
@@ -235,8 +235,7 @@ for i_episode in range(num_episodes):
             reward_sum = 0
             plot_durations()
             break
+torch.save(policy_net, 'policy_nn.pth')
+
 
 print('Complete')
-plot_durations(show_result=True)
-plt.ioff()
-plt.show()
