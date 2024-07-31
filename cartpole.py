@@ -11,6 +11,8 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
+random.seed(1)
+
 # env = gym.make("CartPole-v1")
 env = gym.make('LunarLander-v2')
 
