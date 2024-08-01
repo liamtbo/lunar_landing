@@ -157,10 +157,12 @@ def training_loop(functions, hp):
     replay = ReplayBuffer(hp["ReplayBuffer_capacity"])
     reward_sum = 0
 
-    torch.manual_seed(1)
-    random.seed(1)
+    # torch.manual_seed(1)
+    # random.seed(1)
     for episode in range(hp["episodes"]):
-        state, _ = env.reset(seed=episode)
+        # state, _ = env.reset(seed=episode)
+        state, _ = env.reset()
+
 
         # TODO tests - del
         # state = np.zeros(shape=(8,))
@@ -203,8 +205,8 @@ def training_loop(functions, hp):
                 reward_sum = 0
                 plot_durations()
                 break
-    for name, param in policy_nn.named_parameters():
-        print(f"name: {name}\n\tparam: {param}")
+    # for name, param in policy_nn.named_parameters():
+    #     print(f"name: {name}\n\tparam: {param}")
     print('Complete')
 
 
@@ -222,7 +224,7 @@ def main():
     action_dim = env.action_space.n
     policy_nn = DQN(state_dim, action_dim).to(device)
     torch.save(policy_nn.state_dict(), "policy_params.pth")
-    policy_nn.load_state_dict(torch.load("policy_params.pth"))
+    # policy_nn.load_state_dict(torch.load("policy_params.pth"))
     # for param in policy_nn.parameters():
     #     print(param)
 
