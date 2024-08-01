@@ -11,11 +11,12 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 
-random.seed(1)
+import sys
+
 
 # env = gym.make("CartPole-v1")
+# env = gym.make('LunarLander-v2', render_mode="human")
 env = gym.make('LunarLander-v2')
-
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -86,6 +87,7 @@ state, info = env.reset()
 n_observations = len(state)
 
 policy_net = DQN(n_observations, n_actions).to(device)
+policy_net.load_state_dict(torch.load("policy_params.pth"))
 target_net = DQN(n_observations, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
@@ -98,7 +100,8 @@ steps_done = 0
 
 def select_action(state):
     global steps_done
-    sample = random.random()
+    # sample = random.random()
+    sample = torch.rand(1).item()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
         math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
@@ -109,7 +112,9 @@ def select_action(state):
             # found, so we pick action with the larger expected reward.
             return policy_net(state).max(1).indices.view(1, 1)
     else:
-        return torch.tensor([[env.action_space.sample()]], device=device, dtype=torch.long)
+        action = torch.randint(0, env.action_space.n, size=(1,)).item()
+        # print(f"action: {action}")
+        return torch.tensor([[action]], device=device, dtype=torch.long)
 
 
 episode_durations = []
@@ -143,12 +148,14 @@ def plot_durations(show_result=False):
 def optimize_model():
     if len(memory) < BATCH_SIZE:
         return
+    # print("here")
+    # print(f"replay buffer: {memory.memory}")
     transitions = memory.sample(BATCH_SIZE)
     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
-    tmp1 = zip(*transitions)
     batch = Transition(*zip(*transitions))
+    # print(f"batch: {batch}")
 
     # Compute a mask of non-final states and concatenate the batch elements
     # (a final state would've been the one after which simulation ended)
@@ -164,7 +171,7 @@ def optimize_model():
     # columns of actions taken. These are the actions which would've been taken
     # for each batch state according to policy_net
     state_action_values = policy_net(state_batch).gather(1, action_batch) # along first dim, index from action_batch
-
+    # print(f"predicted: {state_action_values}")
     # Compute V(s_{t+1}) for all next states.
     # Expected values of actions for non_final_next_states are computed based
     # on the "older" target_net; selecting their best reward with max(1).values
@@ -179,26 +186,35 @@ def optimize_model():
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-
+    # print(f"loss: {loss}")
     # Optimize the model
-    optimizer.zero_grad()
-    loss.backward()
-    # In-place gradient clipping
-    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-    optimizer.step()
+    # optimizer.zero_grad()
+    # loss.backward()
+    # # In-place gradient clipping
+    # torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    # optimizer.step()
 
 if torch.cuda.is_available() or torch.backends.mps.is_available():
     num_episodes = 600
+    # num_episodes = 50
 else:
     num_episodes = 50
 
 reward_sum = 0 # TODO
 
+torch.manual_seed(1)
+random.seed(1)
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
-    state, info = env.reset()
+    state, info = env.reset(seed=1)
+
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
+        # print(f"state: {state}")
+        # if len(memory) > 140:
+        #     for name, param in policy_net.named_parameters():
+        #         print(f"name: {name}\n\tparam: {param}")
+        #     sys.exit()
         action = select_action(state)
         observation, reward, terminated, truncated, _ = env.step(action.item())
         reward = torch.tensor([reward], device=device)
@@ -233,7 +249,8 @@ for i_episode in range(num_episodes):
             plot_durations()
             break
 
+for name, param in policy_net.named_parameters():
+    print(f"name: {name}\n\tparam: {param}")
+
+
 print('Complete')
-plot_durations(show_result=True)
-plt.ioff()
-plt.show()
