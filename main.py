@@ -114,13 +114,13 @@ def optimize_network(functions, hp, replay: ReplayBuffer):
     # print(f"target: {target}")
     loss = loss_function(predicted, target)
     # print(f"loss: {loss}")
-    # optimizer.zero_grad()
-    # loss.backward()
-    # # for name, parameter in policy_nn.named_parameters():
-    # #     print(f"gradient of {name}: {parameter.grad}")
-    # torch.nn.utils.clip_grad_value_(policy_nn.parameters(), 100)
+    optimizer.zero_grad()
+    loss.backward()
+    # for name, parameter in policy_nn.named_parameters():
+    #     print(f"gradient of {name}: {parameter.grad}")
+    torch.nn.utils.clip_grad_value_(policy_nn.parameters(), 100)
 
-    # optimizer.step()
+    optimizer.step()
 
 
 def e_greedy(q_values, functions, hp):
@@ -160,7 +160,7 @@ def training_loop(functions, hp):
     torch.manual_seed(1)
     random.seed(1)
     for episode in range(hp["episodes"]):
-        state, _ = env.reset(seed=1)
+        state, _ = env.reset(seed=episode)
 
         # TODO tests - del
         # state = np.zeros(shape=(8,))

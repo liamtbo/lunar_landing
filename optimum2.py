@@ -197,9 +197,13 @@ else:
 
 reward_sum = 0 # TODO
 
+# torch.manual_seed(1)
+# random.seed(1)
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
-    state, info = env.reset()
+    # state, info = env.reset(seed=1)
+    state, info = env.reset(seed=i_episode)
+    
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
         action = select_action(state)

@@ -188,25 +188,25 @@ def optimize_model():
     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
     # print(f"loss: {loss}")
     # Optimize the model
-    # optimizer.zero_grad()
-    # loss.backward()
-    # # In-place gradient clipping
-    # torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-    # optimizer.step()
+    optimizer.zero_grad()
+    loss.backward()
+    # In-place gradient clipping
+    torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    optimizer.step()
 
 if torch.cuda.is_available() or torch.backends.mps.is_available():
-    num_episodes = 600
-    # num_episodes = 50
+    # num_episodes = 600
+    num_episodes = 300
 else:
     num_episodes = 50
 
 reward_sum = 0 # TODO
 
-torch.manual_seed(1)
-random.seed(1)
+# torch.manual_seed(1)
+# random.seed(1)
 for i_episode in range(num_episodes):
     # Initialize the environment and get its state
-    state, info = env.reset(seed=1)
+    state, info = env.reset(seed=i_episode)
 
     state = torch.tensor(state, dtype=torch.float32, device=device).unsqueeze(0)
     for t in count():
