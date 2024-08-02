@@ -157,11 +157,11 @@ def training_loop(functions, hp):
     replay = ReplayBuffer(hp["ReplayBuffer_capacity"])
     reward_sum = 0
 
-    # torch.manual_seed(1)
-    # random.seed(1)
+    torch.manual_seed(1)
+    random.seed(1)
     for episode in range(hp["episodes"]):
-        # state, _ = env.reset(seed=episode)
-        state, _ = env.reset()
+        state, _ = env.reset(seed=episode)
+        # state, _ = env.reset()
 
 
         # TODO tests - del
