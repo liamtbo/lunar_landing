@@ -157,11 +157,11 @@ def training_loop(functions, hp):
     replay = ReplayBuffer(hp["ReplayBuffer_capacity"])
     reward_sum = 0
 
-    torch.manual_seed(1)
-    random.seed(1)
+    # torch.manual_seed(1)
+    # random.seed(1)
     for episode in range(hp["episodes"]):
-        state, _ = env.reset(seed=episode)
-        # state, _ = env.reset()
+        # state, _ = env.reset(seed=episode)
+        state, _ = env.reset()
 
 
         # TODO tests - del
@@ -242,7 +242,7 @@ def main():
         "select_action": e_greedy # softmax or e_greedy
     }
     hp = {
-        "episodes": 300,
+        "episodes": 600,
         "graph_increment": 10,
         "replay_steps": 20,
         "learning_rate": lr,
@@ -257,7 +257,7 @@ def main():
     }
 
     training_loop(functions, hp)
-
+    torch.save(policy_nn.state_dict(), "learned_policy_nn.pth")
     env.close()
 
 if __name__ == "__main__":
