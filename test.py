@@ -6,8 +6,14 @@ import torch.optim as optim
 from collections import namedtuple, deque
 import random
 
-t1 = torch.tensor([[1,1],
-                   [2,2]])
-t2 = torch.tensor([[0],[1]])
+def softmax(state_qvalues, functions, hp):
+    state_qvalues_probabilities = torch.softmax(state_qvalues, dim=0)
+    state_qvalues_dis = torch.distributions.Categorical(state_qvalues_probabilities)
+    action = state_qvalues_dis.sample().item()
+    return action
 
-print(t1 * t2)
+torch.manual_seed(1)
+
+
+for _ in range(5):
+    print(softmax(torch.tensor([2.,2.,2.,2.]), 5, 6))
