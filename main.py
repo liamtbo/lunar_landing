@@ -118,7 +118,7 @@ def optimize_network(functions, hp, replay: ReplayBuffer):
     loss.backward()
     # for name, parameter in policy_nn.named_parameters():
     #     print(f"gradient of {name}: {parameter.grad}")
-    torch.nn.utils.clip_grad_value_(policy_nn.parameters(), 100)
+    torch.nn.utils.clip_grad_norm_(policy_nn.parameters(), 1)
 
     optimizer.step()
 
@@ -157,11 +157,11 @@ def training_loop(functions, hp):
     replay = ReplayBuffer(hp["ReplayBuffer_capacity"])
     reward_sum = 0
 
-    # torch.manual_seed(1)
-    # random.seed(1)
+    torch.manual_seed(1)
+    random.seed(1)
     for episode in range(hp["episodes"]):
-        # state, _ = env.reset(seed=episode)
-        state, _ = env.reset()
+        state, _ = env.reset(seed=episode)
+        # state, _ = env.reset()
 
 
         # TODO tests - del
@@ -208,6 +208,9 @@ def training_loop(functions, hp):
     # for name, param in policy_nn.named_parameters():
     #     print(f"name: {name}\n\tparam: {param}")
     print('Complete')
+    plot_durations(show_result=True)
+    plt.ioff()
+    plt.show()
 
 
 def main():
@@ -223,8 +226,8 @@ def main():
     state_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n
     policy_nn = DQN(state_dim, action_dim).to(device)
-    torch.save(policy_nn.state_dict(), "policy_params.pth")
-    # policy_nn.load_state_dict(torch.load("policy_params.pth"))
+    # torch.save(policy_nn.state_dict(), "policy_params.pth")
+    policy_nn.load_state_dict(torch.load("policy_params.pth"))
     # for param in policy_nn.parameters():
     #     print(param)
 
@@ -237,18 +240,19 @@ def main():
         "policy_nn": policy_nn,
         "target_nn": target_nn,
         "loss_function": nn.SmoothL1Loss(),
-        "optimizer": optim.AdamW(policy_nn.parameters(), lr=lr, amsgrad=True), # TODO amsgrad?, ADAMW?
+        # "optimizer": optim.AdamW(policy_nn.parameters(), lr=lr, amsgrad=True), # TODO amsgrad?, ADAMW?
+        "optimizer": optim.Adam(policy_nn.parameters(), lr=lr),
         "device": device,
-        "select_action": e_greedy # softmax or e_greedy
+        "select_action": softmax # softmax or e_greedy
     }
     hp = {
-        "episodes": 600,
+        "episodes": 1000,
         "graph_increment": 10,
-        "replay_steps": 20,
+        "replay_steps": 1,
         "learning_rate": lr,
         "tau": 0.001,
         "ReplayBuffer_capacity": 10000,
-        "minibatch_size": 128,
+        "minibatch_size": 32,
         "eps_end": 0.05,
         "eps_start": 0.9,
         "eps_decay": 1000,
@@ -257,7 +261,7 @@ def main():
     }
 
     training_loop(functions, hp)
-    torch.save(policy_nn.state_dict(), "learned_policy_nn.pth")
+    torch.save(policy_nn.state_dict(), "learned_policy.pth")
     env.close()
 
 if __name__ == "__main__":
