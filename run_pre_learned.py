@@ -11,13 +11,15 @@ class DQN(nn.Module):
         # fully connected layers of nn
         self.layer1 = nn.Linear(input_dim, 256)
         self.layer2 = nn.Linear(256, 256)
-        self.layer3 = nn.Linear(256, output_dim)
+        self.layer3 = nn.Linear(256, 256)
+        self.layer4 = nn.Linear(256, output_dim)
     # x is state input q(s,a)
     # output is q(s,a) for all action vals
     def forward(self, x):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
-        return self.layer3(x)
+        x = F.relu(self.layer3(x))
+        return self.layer4(x)
 
 device = torch.device(
     "cuda" if torch.cuda.is_available() else
@@ -32,7 +34,9 @@ def softmax(state_qvalues):
     return action
 
 env = gym.make('LunarLander-v2', render_mode="human")
-policy_nn = torch.load("lunar_landing/policy_nn.pth")
+# policy_nn = torch.load("lunar_landing/learned_policy_nn.pth")
+policy_nn = DQN(env.observation_space.shape[0], env.action_space.n).to(device)
+policy_nn.load_state_dict(torch.load("learned_policy_nn.pth"))
 state, _ = env.reset()
 for t in count():
     state = torch.tensor(state, dtype=torch.float32, device=device)

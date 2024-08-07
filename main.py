@@ -88,7 +88,6 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
     policy_nn = functions["policy_nn"]
     target_nn = functions["target_nn"]
     lr = hyperparameters["learning_rate"]
-    # gamma = hyperparameters["gamma"]
     loss_function = functions["loss_function"]
     optimizer = functions["optimizer"]
 
@@ -101,23 +100,19 @@ def optimize_network(functions, hyperparameters, replay: replay_buffer):
     terminated = torch.tensor(batch.terminated, dtype=int, device=device)
 
     predicted  = policy_nn(states).gather(1, actions).squeeze(1)
-    # print(f"predicted: {predicted}")
     with torch.no_grad():
         next_states_qvalues = target_nn(next_states) * (1 - terminated).unsqueeze(dim=1)
         # # expected sarsa
         next_state_qvals_probs = torch.softmax(next_states_qvalues, dim=1)
         sum_next_states_qvals_times_probs = torch.sum(next_states_qvalues * next_state_qvals_probs, dim=1)
 
-    # print(f"next_states_qvals: {next_states_qvalues}")
-    # TODO PE with working with terminated q_vals
     target = rewards + 0.99 * sum_next_states_qvals_times_probs
-    # print(f"target: {target}")
     loss = loss_function(predicted, target)
-    # print(f"loss: {loss}")
     optimizer.zero_grad()
     loss.backward()
-    # for name, parameter in policy_nn.named_parameters():
-    #     print(f"gradient of {name}: {parameter.grad}")
+
+    # torch.nn.utils.clip_grad_value_(policy_nn.parameters(), 100)
+
     optimizer.step()
 
 steps_done = 0
@@ -130,7 +125,6 @@ def e_greedy(q_values, functions, hyperparameters):
                     * math.exp(-1. * steps_done / hyperparameters["eps_decay"])
     steps_done += 1
     sample = random.random() # TODO 
-    # sample = eps_threshold + 0.00001
     if sample > eps_threshold:
         with torch.no_grad():
             return q_values.max(0).indices.item()
@@ -149,16 +143,11 @@ def training_loop(functions, hyperparameters):
     target_nn = functions["target_nn"]
     device = functions["device"]
     select_action = functions["select_action"]
-    graph_increment = hyperparameters["graph_increment"]
     replay = replay_buffer(hyperparameters["replay_buffer_capacity"])
     reward_sum = 0
 
     for episode in range(hyperparameters["episodes"]):
         state, _ = env.reset()
-
-        # TODO tests - del
-        # state = np.zeros(shape=(8,))
-
         state = torch.tensor(state, dtype=torch.float32, device=device)
         terminated = False
 
@@ -166,12 +155,6 @@ def training_loop(functions, hyperparameters):
             with torch.no_grad():
                 state_qvalues = policy_nn(state)
             action = select_action(state_qvalues, functions, hyperparameters)
-
-            # TODO test- del
-            # next_state, reward, terminated, _, _ = [np.array([t+1,t+1,t+1,t+1,t+1,t+1,t+1,t+1]), t+1, 0, 0, 0]
-            # if t == 3:
-            #     terminated = 1
-
 
             next_state, reward, terminated, truncated, info = env.step(action)
             reward_sum += reward
@@ -181,8 +164,16 @@ def training_loop(functions, hyperparameters):
             for _ in range(hyperparameters["replay_steps"]):
                 optimize_network(functions, hyperparameters, replay)
 
-            target_nn.load_state_dict(policy_nn.state_dict())
+            # Soft update of the target network's weights
+            # θ′ ← τ θ + (1 −τ )θ′
+            # TAU = 0.005
+            # target_net_state_dict = target_nn.state_dict()
+            # policy_net_state_dict = policy_nn.state_dict()
+            # for key in policy_net_state_dict:
+                # target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+            # target_nn.load_state_dict(target_net_state_dict)
         
+            target_nn.load_state_dict(policy_nn.state_dict())
 
             if terminated or truncated:
                 episode_durations.append(reward_sum) # TODO
@@ -194,8 +185,6 @@ def training_loop(functions, hyperparameters):
     plot_durations(show_result=True)
     plt.ioff()
     plt.show()
-
-
 
 def main():
     # env = gym.make('LunarLander-v2', render_mode="human")
@@ -212,8 +201,6 @@ def main():
     policy_nn = DQN(state_dim, action_dim).to(device)
     # torch.save(policy_nn.state_dict(), "lunar_landing/policy_nn_weights.pth")
     # policy_nn.load_state_dict(torch.load("lunar_landing/policy_nn_weights.pth"))
-    # for param in policy_nn.parameters():
-    #     print(param)
     target_nn = DQN(state_dim, action_dim).to(device)
     target_nn.load_state_dict(policy_nn.state_dict())
     lr = 1e-4
@@ -223,12 +210,12 @@ def main():
         "policy_nn": policy_nn,
         "target_nn": target_nn,
         "loss_function": nn.SmoothL1Loss(),
-        "optimizer": optim.Adam(policy_nn.parameters(), lr=lr), # TODO amsgrad?, ADAMW?
+        "optimizer": optim.Adam(policy_nn.parameters(), lr=lr),
         "device": device,
         "select_action": softmax # softmax or e_greedy
     }
     hyperparameters = {
-        "episodes": 300,
+        "episodes": 100,
         "graph_increment": 10,
         "replay_steps": 4,
         "learning_rate": lr,
@@ -240,11 +227,10 @@ def main():
         "eps_end": 0.05,
         "eps_start": 0.9,
         "eps_decay": 1000,
-        # "gamma": 0.99
     }
 
     training_loop(functions, hyperparameters)
-
+    torch.save(policy_nn.state_dict(), "learned_policy_nn.pth")
 
     env.close()
 
