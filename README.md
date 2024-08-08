@@ -1,6 +1,8 @@
 # Lunar Lander DQN
 ##### by Liam Bouffard
 
+![](img/Screenshot%20from%202024-08-08%2011-27-06.png)
+
 ## Description
 The "LunarLander-v2" environment in OpenAI Gymnasium is a classic control problem where the objective is to safely land a lunar lander on the moon's surface. The environment simulates a lunar landing module with two lateral thrusters and a main engine. The agent must control these thrusters to land the module on the designated landing pad located between two flags.
 
