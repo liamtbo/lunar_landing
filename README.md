@@ -5,10 +5,10 @@
 
 ## Jumping Right In
 To watch the network learn and review code
-- file train_lunar_lander.ipynb
+- train_lunar_lander.ipynb
 
 To watch a previously trained network in action
-- file run_prelearned.py
+- run_prelearned.py
 
 ## Description
 The "LunarLander-v2" environment in OpenAI Gymnasium is a classic control problem where the objective is to safely land a lunar lander on the moon's surface. The environment simulates a lunar landing module with two lateral thrusters and a main engine. The agent must control these thrusters to land the module on the designated landing pad located between two flags.
