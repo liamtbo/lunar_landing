@@ -6,6 +6,7 @@
 ## Jumping Right In
 To watch the network learn and review code
 - file train_lunar_lander.ipynb
+
 To watch a previously trained network in action
 - file run_prelearned.py
 
