@@ -30,14 +30,15 @@ env = gym.make('LunarLander-v2', render_mode="human")
 policy_nn = DQN(env.observation_space.shape[0], env.action_space.n).to(device)
 policy_nn.load_state_dict(torch.load("learned_policy.pth"))
 
-state, _ = env.reset()
-for t in count():
-    state = torch.tensor(state, dtype=torch.float32, device=device)
-    state_qvalues = policy_nn(state)
-    action = state_qvalues.max(0).indices.item()
-    next_state, reward, terminated, truncated, info = env.step(action)
-
-    state = next_state
-
-    if terminated or truncated:
-        break
+for episode in range(5):
+    state, _ = env.reset()
+    for t in count():
+        state = torch.tensor(state, dtype=torch.float32, device=device)
+        state_qvalues = policy_nn(state)
+        action = state_qvalues.max(0).indices.item()
+        next_state, reward, terminated, truncated, info = env.step(action)
+    
+        state = next_state
+    
+        if terminated or truncated:
+            break
