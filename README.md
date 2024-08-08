@@ -11,9 +11,7 @@ To watch a previously trained network in action
 - run_prelearned.py
 
 ## Description
-The "LunarLander-v2" environment in OpenAI Gymnasium is a classic control problem where the objective is to safely land a lunar lander on the moon's surface. The environment simulates a lunar landing module with two lateral thrusters and a main engine. The agent must control these thrusters to land the module on the designated landing pad located between two flags.
-
-The environment provides challenges in balancing the lander while controlling its descent speed and orientation to achieve a soft landing. Successful landings require precise control to minimize horizontal and vertical velocities and to ensure that both legs of the lander touch down simultaneously.
+The "LunarLander-v2" environment in OpenAI Gymnasium is a classic control problem where the objective is to safely land a lunar lander on the moon's surface. The environment simulates a lunar landing module with two lateral thrusters and a main engine that are learned/controlled by the agent. I deployed a deep q-learning network with a single hidden layer as a solution to this problem.
 
 ## State Space
 The state space of the LunarLander-v2 environment is an 8-dimensional continuous space that 
